@@ -653,7 +653,8 @@ public final class MinioClient {
 
     if (queryParamMap != null) {
       for (Map.Entry<String,String> entry : queryParamMap.entrySet()) {
-        urlBuilder.addEncodedQueryParameter(S3Escaper.encode(entry.getKey()), S3Escaper.encode(entry.getValue()));
+        urlBuilder.addEncodedQueryParameter(S3Escaper.encode(entry.getKey()),
+                                            S3Escaper.encode(entry.getValue()));
       }
     }
 
@@ -664,7 +665,7 @@ public final class MinioClient {
       requestBody = new RequestBody() {
         @Override
         public MediaType contentType() {
-          if (contentType != null) {
+          if (contentType != null && !contentType.isEmpty()) {
             return MediaType.parse(contentType);
           } else {
             return MediaType.parse("application/octet-stream");
@@ -1036,14 +1037,14 @@ public final class MinioClient {
    * @param data           HTTP request body data.
    */
   private HttpResponse executePost(String bucketName, String objectName, Map<String,String> headerMap,
-                                   Map<String,String> queryParamMap, Object data)
+                                   Map<String,String> queryParamMap, String contentType, Object data)
     throws InvalidBucketNameException, NoSuchAlgorithmException, InsufficientDataException, IOException,
            InvalidKeyException, NoResponseException, XmlPullParserException, ErrorResponseException,
            InternalException {
     updateRegionCache(bucketName);
     return execute(Method.POST, BucketRegionCache.INSTANCE.region(bucketName),
                    bucketName, objectName, headerMap, queryParamMap,
-                   null, data, 0);
+                   contentType, data, 0);
   }
 
 
@@ -1059,13 +1060,15 @@ public final class MinioClient {
    * @param length         Length of HTTP request body data.
    */
   private HttpResponse executePut(String bucketName, String objectName, Map<String,String> headerMap,
-                                  Map<String,String> queryParamMap, String region, Object data, int length)
+                                  Map<String,String> queryParamMap, String contentType,
+                                  Object data, int length)
     throws InvalidBucketNameException, NoSuchAlgorithmException, InsufficientDataException, IOException,
            InvalidKeyException, NoResponseException, XmlPullParserException, ErrorResponseException,
            InternalException {
-    HttpResponse response = execute(Method.PUT, region, bucketName, objectName,
-                                    headerMap, queryParamMap,
-                                    "", data, length);
+    updateRegionCache(bucketName);
+    HttpResponse response = execute(Method.PUT, BucketRegionCache.INSTANCE.region(bucketName),
+                                    bucketName, objectName, headerMap, queryParamMap,
+                                    contentType, data, length);
     response.body().close();
     return response;
   }
@@ -1086,9 +1089,8 @@ public final class MinioClient {
     throws InvalidBucketNameException, NoSuchAlgorithmException, InsufficientDataException, IOException,
            InvalidKeyException, NoResponseException, XmlPullParserException, ErrorResponseException,
            InternalException {
-    updateRegionCache(bucketName);
     return executePut(bucketName, objectName, headerMap, queryParamMap,
-                      BucketRegionCache.INSTANCE.region(bucketName),
+                      "application/octet-stream",
                       data, length);
   }
 
@@ -1938,7 +1940,8 @@ public final class MinioClient {
       configString = config.toString();
     }
 
-    executePut(bucketName, null, headerMap, null, US_EAST_1, configString, 0);
+    execute(Method.PUT, US_EAST_1, bucketName, null, headerMap, null,
+            "application/octet-stream", configString, 0);
   }
 
 
@@ -2110,13 +2113,9 @@ public final class MinioClient {
       queryParamMap.put(UPLOAD_ID, uploadId);
     }
     Map<String,String> headerMap = new HashMap<>();
-    if (contentType != null) {
-      headerMap.put("Content-Type", contentType);
-    } else {
-      headerMap.put("Content-Type", "application/octet-stream");
-    }
     HttpResponse response = executePut(bucketName, objectName, headerMap,
-                                       queryParamMap, data, length);
+                                       queryParamMap, contentType,
+                                       data, length);
     return response.header().etag();
   }
 
@@ -2564,17 +2563,11 @@ public final class MinioClient {
     throws InvalidBucketNameException, NoSuchAlgorithmException, InsufficientDataException, IOException,
            InvalidKeyException, NoResponseException, XmlPullParserException, ErrorResponseException,
            InternalException {
-    Map<String,String> headerMap = new HashMap<>();
-    if (contentType != null) {
-      headerMap.put("Content-Type", contentType);
-    } else {
-      headerMap.put("Content-Type", "application/octet-stream");
-    }
-
     Map<String,String> queryParamMap = new HashMap<>();
     queryParamMap.put("uploads", "");
 
-    HttpResponse response = executePost(bucketName, objectName, headerMap, queryParamMap, "");
+    HttpResponse response = executePost(bucketName, objectName, null,
+                                        queryParamMap, contentType, "");
 
     InitiateMultipartUploadResult result = new InitiateMultipartUploadResult();
     result.parseXml(response.body().charStream());
@@ -2595,7 +2588,8 @@ public final class MinioClient {
 
     CompleteMultipartUpload completeManifest = new CompleteMultipartUpload(parts);
 
-    HttpResponse response = executePost(bucketName, objectName, null, queryParamMap, completeManifest);
+    HttpResponse response = executePost(bucketName, objectName, null, queryParamMap,
+                                        "", completeManifest);
 
     // Fixing issue https://github.com/minio/minio-java/issues/391
     String bodyContent = "";
